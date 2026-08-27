@@ -1,0 +1,72 @@
+name: Basilica Audio release notes
+description: >
+  Publishes a GitHub release body built from the repository's own CHANGELOG.md
+  section for the tag being released, followed by the suite-wide footer a
+  downloader actually needs: what each attached archive contains, the signing
+  and notarisation status per platform, and the install paths.
+
+inputs:
+  tag:
+    description: The tag being released, e.g. v0.7.0. The CHANGELOG section is looked up as [<tag without the leading v>].
+    required: true
+  repository:
+    description: owner/name of the repository the release belongs to.
+    required: false
+    default: ${{ github.repository }}
+  token:
+    description: Token with contents:write on `repository`. github.token is enough for a release in the same repository.
+    required: true
+  changelog:
+    description: Path to the changelog, relative to the checked-out repository.
+    required: false
+    default: CHANGELOG.md
+  manual-path:
+    description: Path to the user manual, relative to the repository root. Linked at the tag, so the link keeps pointing at the manual as shipped.
+    required: false
+    default: docs/manual.md
+  product-page:
+    description: Product page URL. Defaults to the suite's website entry for this repository.
+    required: false
+    default: ''
+  include-assets:
+    description: >
+      'true' renders a Downloads table from the assets actually attached to the
+      release, so it must run after the platform build jobs. 'false' omits that
+      section, which is what the release-creating job wants - the assets do not
+      exist yet at that point.
+    required: false
+    default: 'false'
+  dry-run:
+    description: >
+      'true' assembles the body and writes it to the step summary and the log
+      without touching the release. Lets a workflow change be proved before a
+      tag is ever cut, which is otherwise the only way to exercise it.
+    required: false
+    default: 'false'
+  allow-missing-changelog-section:
+    description: >
+      Escape hatch. By default a tag with no matching CHANGELOG section fails
+      the step, because publishing a release whose notes are empty is the exact
+      problem this action exists to prevent. Set to 'true' to fall back to a
+      bare heading instead of failing.
+    required: false
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    - name: Build and publish the release body
+      shell: bash
+      # Invoked through `bash` rather than relying on the file mode, so the
+      # action keeps working if the executable bit is ever lost in transit.
+      run: bash "$GITHUB_ACTION_PATH/build-release-notes.sh"
+      env:
+        INPUT_TAG: ${{ inputs.tag }}
+        INPUT_REPOSITORY: ${{ inputs.repository }}
+        INPUT_CHANGELOG: ${{ inputs.changelog }}
+        INPUT_MANUAL_PATH: ${{ inputs.manual-path }}
+        INPUT_PRODUCT_PAGE: ${{ inputs.product-page }}
+        INPUT_INCLUDE_ASSETS: ${{ inputs.include-assets }}
+        INPUT_DRY_RUN: ${{ inputs.dry-run }}
+        INPUT_ALLOW_MISSING_CHANGELOG_SECTION: ${{ inputs.allow-missing-changelog-section }}
+        GH_TOKEN: ${{ inputs.token }}
