@@ -76,10 +76,40 @@ fi
 # job passes include-assets=false and gets this section omitted. Descriptions are
 # matched by suffix, and an asset this mapping has never seen still gets a row
 # rather than being dropped.
-render_downloads() {
-    local names
-    names="$(gh release view "$TAG" -R "$REPO" --json assets --jq '.assets[].name' 2>/dev/null || true)"
+#
+# basilica-audio/.github#5: an archive uploaded without a matching `.sha256`
+# fails this step - and so the workflow run - rather than shipping quietly.
+# assert_checksum_pairing runs against the same $names listing before any row
+# is rendered, so a missing pairing is caught even on a release with no other
+# problem worth a Downloads-table row.
+assert_checksum_pairing() {
+    local names="$1"
+    local archive_names="" checksum_stems="" name
 
+    while IFS= read -r name; do
+        [ -n "$name" ] || continue
+        case "$name" in
+            *.sha256) checksum_stems="${checksum_stems}${name%.sha256}"$'\n' ;;
+            *) archive_names="${archive_names}${name}"$'\n' ;;
+        esac
+    done <<< "$names"
+
+    local missing="" archive
+    while IFS= read -r archive; do
+        [ -n "$archive" ] || continue
+        if ! grep -qxF "$archive" <<< "$checksum_stems"; then
+            missing="${missing}${archive}"$'\n'
+        fi
+    done <<< "$archive_names"
+
+    if [ -n "$missing" ]; then
+        echo "::error::Release $TAG has archive(s) uploaded with no matching .sha256 (basilica-audio/.github#5): $(tr '\n' ' ' <<< "$missing")"
+        return 1
+    fi
+}
+
+render_downloads() {
+    local names="$1"
     local rows="" checksums=0 name description
     while IFS= read -r name; do
         [ -n "$name" ] || continue
@@ -105,7 +135,7 @@ render_downloads() {
     printf '## Downloads\n\n| Asset | Contains |\n| --- | --- |\n%s' "$rows"
 
     if [ "$checksums" -eq 1 ]; then
-        printf '\nEvery archive is published alongside a `.sha256` file holding the checksum the build produced, if you want to confirm your download byte for byte.\n'
+        printf '\nEvery archive is published alongside a `.sha256` file holding the checksum the build produced. Verify a download with `shasum -a 256 -c <file>.sha256` on macOS/Linux, or on Windows `certutil -hashfile <file> SHA256` and compare the printed hash against the `.sha256` file.\n'
     fi
 
     printf '\n'
@@ -113,7 +143,18 @@ render_downloads() {
 
 DOWNLOADS=""
 if [ "$INCLUDE_ASSETS" = "true" ]; then
-    DOWNLOADS="$(render_downloads)"
+    ASSET_NAMES="$(gh release view "$TAG" -R "$REPO" --json assets --jq '.assets[].name' 2>/dev/null || true)"
+
+    # Run as a plain top-level statement, not inside the $(...) below: a
+    # command substitution runs in a subshell where `set -e` is NOT inherited
+    # by default (bash's `inherit_errexit` is off unless a caller opted in),
+    # so a `return 1` from inside `render_downloads() { ...; assert_...; }`
+    # would otherwise be swallowed and the release would still publish. The
+    # explicit `|| exit 1` is defense in depth on top of that, not a
+    # substitute for keeping the call itself at top level.
+    assert_checksum_pairing "$ASSET_NAMES" || exit 1
+
+    DOWNLOADS="$(render_downloads "$ASSET_NAMES")"
 fi
 
 # ==============================================================================
