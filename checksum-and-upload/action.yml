@@ -1,0 +1,37 @@
+name: Basilica Audio checksum and release upload
+description: >
+  Computes a sha256 checksum for one or more release archives and uploads
+  each archive together with its `<name>.sha256` file to the GitHub release
+  for the tag. Exists so the checksum-and-upload pairing lives in one place
+  across the suite (basilica-audio/.github#5) instead of being re-typed, and
+  possibly forgotten, in every repo's release.yml.
+
+inputs:
+  tag:
+    description: The tag being released, e.g. v0.7.0. The release must already exist (see the release-notes action).
+    required: true
+  repository:
+    description: owner/name of the repository the release belongs to.
+    required: false
+    default: ${{ github.repository }}
+  token:
+    description: Token with contents:write on `repository`. github.token is enough for a release in the same repository.
+    required: true
+  assets:
+    description: >
+      One or more archive file paths to checksum and upload, separated by
+      spaces and/or newlines (relative to the workspace, or absolute). Each
+      gets its own `<name>.sha256` alongside it.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Checksum and upload
+      shell: bash
+      run: bash "$GITHUB_ACTION_PATH/checksum-and-upload.sh"
+      env:
+        INPUT_TAG: ${{ inputs.tag }}
+        INPUT_REPOSITORY: ${{ inputs.repository }}
+        INPUT_ASSETS: ${{ inputs.assets }}
+        GH_TOKEN: ${{ inputs.token }}
